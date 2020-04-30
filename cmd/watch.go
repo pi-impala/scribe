@@ -16,7 +16,10 @@ limitations under the License.
 package cmd
 
 import (
+	"bufio"
 	"os"
+	"strings"
+	"sync"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/pkg/errors"
@@ -53,6 +56,7 @@ func init() {
 	watchCmd.Flags().StringVarP(&watchExt, "extensions", "e", "", "extensions to watch (comma delimited)")
 }
 
+// Check that the target path is valid, and if not then try to set it to the working directory
 func watchPreRunE(cmd *cobra.Command, args []string) error {
 	if watchTarget == "" {
 		t, err := os.Getwd()
@@ -77,7 +81,21 @@ func watchPreRunE(cmd *cobra.Command, args []string) error {
 }
 
 func watchRunE(cmd *cobra.Command, args []string) error {
-	logrus.Debug("initializing watcher...\n")
+
+	endChan := make(chan struct{})
+	go func() {
+		sc := bufio.NewScanner(os.Stdin)
+		for sc.Scan() {
+			s := sc.Text()
+			if strings.Compare("q", s) == 0 {
+				logrus.Println("received quit")
+				endChan <- struct{}{}
+				return
+			}
+		}
+	}()
+
+	logrus.Println("initializing watcher...")
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -85,9 +103,11 @@ func watchRunE(cmd *cobra.Command, args []string) error {
 	}
 	defer watcher.Close()
 
-	done := make(chan bool)
+	wg := new(sync.WaitGroup)
+	wg.Add(1)
 
 	go func() {
+		defer wg.Done()
 		for {
 			select {
 			case event, ok := <-watcher.Events:
@@ -103,6 +123,12 @@ func watchRunE(cmd *cobra.Command, args []string) error {
 					return
 				}
 				logrus.Println(err)
+			case _, ok := <-endChan:
+				if !ok {
+					return
+				}
+				logrus.Println("stopping...")
+				return
 			}
 		}
 	}()
@@ -113,7 +139,7 @@ func watchRunE(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	<-done
-	// TODO: add fsnotify logic here
+	wg.Wait()
+
 	return nil
 }
