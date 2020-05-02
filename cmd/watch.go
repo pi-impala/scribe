@@ -22,6 +22,7 @@ import (
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/pi-impala/scribe/action"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -116,6 +117,10 @@ func watchRunE(cmd *cobra.Command, args []string) error {
 				}
 				if event.Op&fsnotify.Create == fsnotify.Create {
 					logrus.Println("detected new file: ", event.Name)
+					if err := dispatch(event.Name, watchTarget); err != nil {
+						logrus.Println(err)
+					}
+					logrus.Println("moved ", event.Name, " -> ", watchTarget)
 				}
 
 			case err, ok := <-watcher.Errors:
@@ -142,4 +147,18 @@ func watchRunE(cmd *cobra.Command, args []string) error {
 	wg.Wait()
 
 	return nil
+}
+
+func dispatch(path string, target string) error {
+	ctx := action.Context{}
+	err := ctx.Set(
+		action.Path(path),
+		action.Target(target),
+	)
+	if err != nil {
+		return errors.Wrap(err, "action dispatch failed")
+	}
+
+	a := action.New(&ctx, action.Move)
+	return action.Dispatch(a)
 }
