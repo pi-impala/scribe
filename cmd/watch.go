@@ -18,7 +18,6 @@ package cmd
 import (
 	"bufio"
 	"os"
-	"strings"
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
@@ -31,13 +30,13 @@ import (
 // watchCmd represents the watch command
 var watchCmd = &cobra.Command{
 	Use:   "watch",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
+	Short: "Watch directories for speciied file types and move newly created ones to a target directory",
+	Long: `The "watch" command takes a list of paths to watch, as arguments. 
+	For example, to watch ~/Desktop and ~/Downloads for png, pcap, or expk files and move them to ~/Documents/my_target/,
+	run:
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	scribe watch ~/Desktop ~/Downloads -e png,pcap,expk -t ~/Documents/my_target
+	`,
 	Args:    cobra.MinimumNArgs(1),
 	PreRunE: watchPreRunE,
 	RunE:    watchRunE,
@@ -85,10 +84,14 @@ func watchRunE(cmd *cobra.Command, args []string) error {
 
 	endChan := make(chan struct{})
 	go func() {
+		validArgs := map[string]struct{}{
+			"q":    struct{}{},
+			"quit": struct{}{},
+		}
 		sc := bufio.NewScanner(os.Stdin)
 		for sc.Scan() {
 			s := sc.Text()
-			if strings.Compare("q", s) == 0 {
+			if _, ok := validArgs[s]; ok {
 				logrus.Println("received quit")
 				endChan <- struct{}{}
 				return
@@ -109,29 +112,35 @@ func watchRunE(cmd *cobra.Command, args []string) error {
 
 	go func() {
 		defer wg.Done()
+		pending := []*action.Context{}
 		for {
 			select {
 			case event, ok := <-watcher.Events:
 				if !ok {
+					flushPendingActions(pending)
 					return
 				}
 				if event.Op&fsnotify.Create == fsnotify.Create {
 					logrus.Println("detected new file: ", event.Name)
-					if err := dispatch(event.Name, watchTarget); err != nil {
-						logrus.Println(err)
+					ctx, err := newActionContext(event.Name, watchTarget)
+					if err != nil {
+						logrus.Errorf("failed to create action for %s: %v", event.Name, err)
 					}
-					logrus.Println("moved ", event.Name, " -> ", watchTarget)
+					pending = append(pending, ctx)
 				}
 
 			case err, ok := <-watcher.Errors:
 				if !ok {
+					flushPendingActions(pending)
 					return
 				}
 				logrus.Println(err)
 			case _, ok := <-endChan:
 				if !ok {
+					flushPendingActions(pending)
 					return
 				}
+				flushPendingActions(pending)
 				logrus.Println("stopping...")
 				return
 			}
@@ -149,16 +158,30 @@ func watchRunE(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func dispatch(path string, target string) error {
+func newActionContext(path string, target string) (*action.Context, error) {
 	ctx := action.Context{}
 	err := ctx.Set(
 		action.Path(path),
 		action.Target(target),
 	)
 	if err != nil {
-		return errors.Wrap(err, "action dispatch failed")
+		return nil, errors.Wrap(err, "action dispatch failed")
 	}
+	return &ctx, nil
+}
 
-	a := action.New(&ctx, action.Move)
+func flushPendingActions(actions []*action.Context) {
+	for _, ctx := range actions {
+		if err := dispatch(ctx); err != nil {
+			logrus.Errorf("failed to dispatch action: %v", err)
+		} else {
+
+			logrus.Println("moved ", ctx)
+		}
+	}
+}
+
+func dispatch(ctx *action.Context) error {
+	a := action.FromContext(ctx, action.Move)
 	return action.Dispatch(a)
 }

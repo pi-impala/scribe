@@ -33,16 +33,11 @@ var cfgFile string
 
 var logLevel string
 
-// rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "scribe",
-	Short: "A brief description of your application",
-	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "A tool for simplifying case note organization",
+	Long: `Scribe watches a list of paths for specified file types, and performs an action when 
+	a matching file is created.`,
 
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		if err := initializeLogger(os.Stdout, logLevel); err != nil {
@@ -50,13 +45,8 @@ to quickly create a Cobra application.`,
 		}
 		return nil
 	},
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	//	Run: func(cmd *cobra.Command, args []string) { },
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
@@ -67,14 +57,10 @@ func Execute() {
 func init() {
 	cobra.OnInitialize(initConfig)
 
-	// Here you will define your flags and configuration settings.
-	// Cobra supports persistent flags, which, if defined here,
-	// will be global for your application.
-
+	// Global Flags
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.scribe.yaml)")
 
-	// Cobra also supports local flags, which will only run
-	// when this action is called directly.
+	// Local Flags
 	rootCmd.Flags().StringVarP(&logLevel, "log-level", "l", logrus.DebugLevel.String(), "log level (debug, info, warn, error, fatal, panic)")
 
 }

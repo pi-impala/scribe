@@ -51,7 +51,7 @@ type action struct {
 	fn  contextFunc
 }
 
-func New(ctx *Context, fn func(*Context) error) *action {
+func FromContext(ctx *Context, fn func(*Context) error) *action {
 	return &action{
 		ctx: ctx,
 		fn:  fn,
