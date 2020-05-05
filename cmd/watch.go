@@ -18,10 +18,11 @@ package cmd
 import (
 	"bufio"
 	"os"
+	"strings"
 	"sync"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/pi-impala/scribe/action"
+	"github.com/pi-impala/scribe/notifier"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -99,13 +100,21 @@ func watchRunE(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	logrus.Println("initializing watcher...")
+	logrus.Println("initializing notifer...")
 
-	watcher, err := fsnotify.NewWatcher()
+	n, err := notifier.New()
 	if err != nil {
-		return errors.Wrap(err, "failed to initialize watcher")
+		return errors.Wrap(err, "failed to initialize notifer")
 	}
-	defer watcher.Close()
+	defer n.Close()
+
+	// split extensions into slice, handle possible trailing comma
+	exts := strings.Split(strings.TrimRight(watchExt, ","), ",")
+	evts, errs, err := n.Notify(exts, args...)
+
+	if err != nil {
+		return err
+	}
 
 	wg := new(sync.WaitGroup)
 	wg.Add(1)
@@ -115,43 +124,34 @@ func watchRunE(cmd *cobra.Command, args []string) error {
 		pending := []*action.Context{}
 		for {
 			select {
-			case event, ok := <-watcher.Events:
+			case event, ok := <-evts:
 				if !ok {
 					flushPendingActions(pending)
 					return
 				}
-				if event.Op&fsnotify.Create == fsnotify.Create {
-					logrus.Println("detected new file: ", event.Name)
-					ctx, err := newActionContext(event.Name, watchTarget)
-					if err != nil {
-						logrus.Errorf("failed to create action for %s: %v", event.Name, err)
-					}
-					pending = append(pending, ctx)
+				p := event.Path()
+				logrus.Println("detected new file: ", p)
+
+				ctx, err := newActionContext(p, watchTarget)
+				if err != nil {
+					logrus.Errorf("failed to create action for %s: %v", p, err)
 				}
 
-			case err, ok := <-watcher.Errors:
+				pending = append(pending, ctx)
+
+			case err, ok := <-errs:
 				if !ok {
 					flushPendingActions(pending)
 					return
 				}
 				logrus.Println(err)
-			case _, ok := <-endChan:
-				if !ok {
-					flushPendingActions(pending)
-					return
-				}
+			case <-endChan:
 				flushPendingActions(pending)
 				logrus.Println("stopping...")
 				return
 			}
 		}
 	}()
-
-	for _, arg := range args {
-		if err = watcher.Add(arg); err != nil {
-			return errors.Wrapf(err, "unable to watch path %s", arg)
-		}
-	}
 
 	wg.Wait()
 
