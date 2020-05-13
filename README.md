@@ -8,8 +8,11 @@ A tool for assisting with support case organization.
 
 Go Version: 1.14
 
-### MVP
+## Build from source
+### Requirements for production builds
+* make (tested with GNU Make 4.1 x86_64-pc-linux-gnu)
+* upx (tested with upx 3.91 UCL data compression library 1.03 LZMA SDK version 9.22 beta)
 
-* Read defaults from ENV/Config
-
-* Implement file system watcher
+Run ```make build-prod-linux``` or ```make build-prod-darwin```
+### Dev builds
+Run ```make build``` or just ```go build```
