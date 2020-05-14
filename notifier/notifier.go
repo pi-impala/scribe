@@ -64,7 +64,7 @@ func (n *notifier) Notify(exts []string, paths ...string) (<-chan Event, <-chan 
 			return n.events, n.errs, errors.Wrapf(err, "failed to  add path %s", path)
 		}
 	}
-	// ...TODO: flush out
+
 	go func() {
 		for {
 			select {
